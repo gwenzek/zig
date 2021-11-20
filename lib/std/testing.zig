@@ -43,7 +43,8 @@ pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void 
 /// equal, prints diagnostics to stderr to show exactly how they are not equal,
 /// then aborts.
 /// `actual` is casted to the type of `expected`.
-pub fn expectEqual(expected: anytype, actual: @TypeOf(expected)) !void {
+pub fn expectEqual(expected_wrong_type: anytype, actual: anytype) !void {
+    const expected = @as(@TypeOf(actual), expected_wrong_type);
     switch (@typeInfo(@TypeOf(actual))) {
         .NoReturn,
         .BoundFn,

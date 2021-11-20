@@ -176,13 +176,13 @@ const expectEqual = std.testing.expectEqual;
 test "test vectors" {
     const hash = Wyhash.hash;
 
-    try expectEqual(hash(0, ""), 0x0);
-    try expectEqual(hash(1, "a"), 0xbed235177f41d328);
-    try expectEqual(hash(2, "abc"), 0xbe348debe59b27c3);
-    try expectEqual(hash(3, "message digest"), 0x37320f657213a290);
-    try expectEqual(hash(4, "abcdefghijklmnopqrstuvwxyz"), 0xd0b270e1d8a7019c);
-    try expectEqual(hash(5, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"), 0x602a1894d3bbfe7f);
-    try expectEqual(hash(6, "12345678901234567890123456789012345678901234567890123456789012345678901234567890"), 0x829e9c148b75970e);
+    try expectEqual(0x0, hash(0, ""));
+    try expectEqual(0xbed235177f41d328, hash(1, "a"));
+    try expectEqual(0xbe348debe59b27c3, hash(2, "abc"));
+    try expectEqual(0x37320f657213a290, hash(3, "message digest"));
+    try expectEqual(0xd0b270e1d8a7019c, hash(4, "abcdefghijklmnopqrstuvwxyz"));
+    try expectEqual(0x602a1894d3bbfe7f, hash(5, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"));
+    try expectEqual(0x829e9c148b75970e, hash(6, "12345678901234567890123456789012345678901234567890123456789012345678901234567890"));
 }
 
 test "test vectors streaming" {

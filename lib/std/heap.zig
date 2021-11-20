@@ -1054,6 +1054,7 @@ pub fn testAllocator(base_allocator: *mem.Allocator) !void {
 
     var slice = try allocator.alloc(*i32, 100);
     try testing.expect(slice.len == 100);
+    try testing.expect(slice[0] == undefined);
     for (slice) |*item, i| {
         item.* = try allocator.create(i32);
         item.*.* = @intCast(i32, i);

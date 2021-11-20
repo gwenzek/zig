@@ -356,13 +356,13 @@ test "mem.zeroes" {
     };
 
     const b = zeroes(ZigStruct);
-    try testing.expectEqual(@as(i8, 0), b.integral_types.integer_0);
+    try testing.expectEqual(@as(i0, 0), b.integral_types.integer_0);
     try testing.expectEqual(@as(i8, 0), b.integral_types.integer_8);
     try testing.expectEqual(@as(i16, 0), b.integral_types.integer_16);
     try testing.expectEqual(@as(i32, 0), b.integral_types.integer_32);
     try testing.expectEqual(@as(i64, 0), b.integral_types.integer_64);
     try testing.expectEqual(@as(i128, 0), b.integral_types.integer_128);
-    try testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_0);
+    try testing.expectEqual(@as(u0, 0), b.integral_types.unsigned_0);
     try testing.expectEqual(@as(u8, 0), b.integral_types.unsigned_8);
     try testing.expectEqual(@as(u16, 0), b.integral_types.unsigned_16);
     try testing.expectEqual(@as(u32, 0), b.integral_types.unsigned_32);
@@ -546,11 +546,11 @@ pub fn indexOfDiff(comptime T: type, a: []const T, b: []const T) ?usize {
 }
 
 test "indexOfDiff" {
-    try testing.expectEqual(indexOfDiff(u8, "one", "one"), null);
-    try testing.expectEqual(indexOfDiff(u8, "one two", "one"), 3);
-    try testing.expectEqual(indexOfDiff(u8, "one", "one two"), 3);
-    try testing.expectEqual(indexOfDiff(u8, "one twx", "one two"), 6);
-    try testing.expectEqual(indexOfDiff(u8, "xne", "one"), 0);
+    try testing.expectEqual(null, indexOfDiff(u8, "one", "one"));
+    try testing.expectEqual(3, indexOfDiff(u8, "one two", "one"));
+    try testing.expectEqual(3, indexOfDiff(u8, "one", "one two"));
+    try testing.expectEqual(6, indexOfDiff(u8, "one twx", "one two"));
+    try testing.expectEqual(0, indexOfDiff(u8, "xne", "one"));
 }
 
 pub const toSliceConst = @compileError("deprecated; use std.mem.spanZ");
@@ -1214,26 +1214,26 @@ test "mem.indexOf multibyte" {
         // make haystack and needle long enough to trigger boyer-moore-horspool algorithm
         const haystack = [1]u16{0} ** 100 ++ [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff };
         const needle = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee };
-        try testing.expectEqual(indexOfPos(u16, &haystack, 0, &needle), 100);
+        try testing.expectEqual(100, indexOfPos(u16, &haystack, 0, &needle));
 
         // check for misaligned false positives (little and big endian)
         const needleLE = [_]u16{ 0xbbbb, 0xcccc, 0xdddd, 0xeeee, 0xffff };
-        try testing.expectEqual(indexOfPos(u16, &haystack, 0, &needleLE), null);
+        try testing.expectEqual(null, indexOfPos(u16, &haystack, 0, &needleLE));
         const needleBE = [_]u16{ 0xaacc, 0xbbdd, 0xccee, 0xddff, 0xee00 };
-        try testing.expectEqual(indexOfPos(u16, &haystack, 0, &needleBE), null);
+        try testing.expectEqual(null, indexOfPos(u16, &haystack, 0, &needleBE));
     }
 
     {
         // make haystack and needle long enough to trigger boyer-moore-horspool algorithm
         const haystack = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee, 0x00ff } ++ [1]u16{0} ** 100;
         const needle = [_]u16{ 0xbbaa, 0xccbb, 0xddcc, 0xeedd, 0xffee };
-        try testing.expectEqual(lastIndexOf(u16, &haystack, &needle), 0);
+        try testing.expectEqual(0, lastIndexOf(u16, &haystack, &needle));
 
         // check for misaligned false positives (little and big endian)
         const needleLE = [_]u16{ 0xbbbb, 0xcccc, 0xdddd, 0xeeee, 0xffff };
-        try testing.expectEqual(lastIndexOf(u16, &haystack, &needleLE), null);
+        try testing.expectEqual(null, lastIndexOf(u16, &haystack, &needleLE));
         const needleBE = [_]u16{ 0xaacc, 0xbbdd, 0xccee, 0xddff, 0xee00 };
-        try testing.expectEqual(lastIndexOf(u16, &haystack, &needleBE), null);
+        try testing.expectEqual(null, lastIndexOf(u16, &haystack, &needleBE));
     }
 }
 
