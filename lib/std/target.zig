@@ -805,6 +805,8 @@ pub const Target = struct {
             hsail64,
             spir,
             spir64,
+            spirv32,
+            spirv64,
             kalimba,
             shave,
             lanai,
@@ -816,8 +818,6 @@ pub const Target = struct {
             // Stage1 currently assumes that architectures above this comment
             // map one-to-one with the ZigLLVM_ArchType enum.
             spu_2,
-            spirv32,
-            spirv64,
 
             pub fn isX86(arch: Arch) bool {
                 return switch (arch) {
