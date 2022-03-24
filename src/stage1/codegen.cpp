@@ -3528,7 +3528,7 @@ static LLVMValueRef ir_render_bin_op(CodeGen *g, Stage1Air *executable,
                 }
 
                 // TODO runtime safety
-                return LLVMBuildInBoundsGEP(g->builder, op1_value, &subscript_value, 1, "");
+                return LLVMBuildInBoundsGEP2(g->builder, op1->value->type->llvm_type, op1_value, &subscript_value, 1, "");
             } else if (scalar_type->id == ZigTypeIdFloat) {
                 ZigLLVMSetFastMath(g->builder, ir_want_fast_math(g, &bin_op_instruction->base));
                 return float_op[add_sub_mul](g->builder, op1_value, op2_value, "");
@@ -3826,7 +3826,6 @@ static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, Stage1Air *execu
     ZigType *slice_type = instruction->base.value->type;
     ZigType *slice_ptr_type = slice_type->data.structure.fields[slice_ptr_index]->type_entry;
     size_t ptr_index = slice_type->data.structure.fields[slice_ptr_index]->gen_index;
-    size_t len_index = slice_type->data.structure.fields[slice_len_index]->gen_index;
 
     LLVMValueRef result_loc = ir_llvm_value(g, instruction->result_loc);
 
@@ -3835,20 +3834,20 @@ static LLVMValueRef ir_render_ptr_of_array_to_slice(CodeGen *g, Stage1Air *execu
     assert(array_type->id == ZigTypeIdArray);
 
     if (type_has_bits(g, actual_type)) {
-        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, ptr_index, "");
+        LLVMValueRef ptr_field_ptr = build_struct_gep(g, slice_type, result_loc, slice_ptr_index);
         LLVMValueRef indices[] = {
             LLVMConstNull(g->builtin_types.entry_usize->llvm_type),
             LLVMConstInt(g->builtin_types.entry_usize->llvm_type, 0, false),
         };
         LLVMValueRef expr_val = ir_llvm_value(g, instruction->operand);
-        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP(g->builder, expr_val, indices, 2, "");
+        LLVMValueRef slice_start_ptr = LLVMBuildInBoundsGEP2(g->builder, slice_ptr_type->llvm_type, expr_val, indices, 2, "");
         gen_store_untyped(g, slice_start_ptr, ptr_field_ptr, 0, false);
     } else if (ir_want_runtime_safety(g, &instruction->base) && ptr_index != SIZE_MAX) {
-        LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, ptr_index, "");
+        LLVMValueRef ptr_field_ptr = build_struct_gep(g, slice_type, result_loc, slice_ptr_index);
         gen_undef_init(g, slice_ptr_type, slice_ptr_type, ptr_field_ptr);
     }
 
-    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, result_loc, len_index, "");
+    LLVMValueRef len_field_ptr = build_struct_gep(g, slice_type, result_loc, slice_len_index);
     LLVMValueRef len_value = LLVMConstInt(g->builtin_types.entry_usize->llvm_type,
             array_type->data.array.len, false);
     gen_store_untyped(g, len_value, len_field_ptr, 0, false);
