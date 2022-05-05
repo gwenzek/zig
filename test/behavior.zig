@@ -111,7 +111,7 @@ test {
     _ = @import("behavior/int_div.zig");
     _ = @import("behavior/inttoptr.zig");
     _ = @import("behavior/ir_block_deps.zig");
-    _ = @import("behavior/math.zig");
+    // _ = @import("behavior/math.zig");
     _ = @import("behavior/maximum_minimum.zig");
     _ = @import("behavior/member_func.zig");
     _ = @import("behavior/merge_error_sets.zig");
@@ -127,8 +127,8 @@ test {
     _ = @import("behavior/ref_var_in_if_after_if_2nd_switch_prong.zig");
     _ = @import("behavior/reflection.zig");
     _ = @import("behavior/saturating_arithmetic.zig");
-    _ = @import("behavior/select.zig");
-    _ = @import("behavior/shuffle.zig");
+    // _ = @import("behavior/select.zig");
+    // _ = @import("behavior/shuffle.zig");
     _ = @import("behavior/sizeof_and_typeof.zig");
     _ = @import("behavior/slice.zig");
     _ = @import("behavior/slice_sentinel_comptime.zig");
@@ -154,7 +154,7 @@ test {
     _ = @import("behavior/union_with_members.zig");
     _ = @import("behavior/usingnamespace.zig");
     _ = @import("behavior/var_args.zig");
-    _ = @import("behavior/vector.zig");
+    // _ = @import("behavior/vector.zig");
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
@@ -168,7 +168,7 @@ test {
     }
 
     if (builtin.os.tag != .wasi) {
-        _ = @import("behavior/asm.zig");
+        // _ = @import("behavior/asm.zig");
     }
 
     if (builtin.zig_backend != .stage2_arm and
