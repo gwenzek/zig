@@ -231,83 +231,17 @@ pub fn Atomic(comptime T: type) type {
             }
 
             inline fn x86BitRmw(self: *Self, comptime op: BitRmwOp, bit: Bit, comptime ordering: Ordering) u1 {
-                const old_bit: u8 = switch (@sizeOf(T)) {
-                    2 => switch (op) {
-                        .Set => asm volatile ("lock btsw %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Reset => asm volatile ("lock btrw %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Toggle => asm volatile ("lock btcw %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                    },
-                    4 => switch (op) {
-                        .Set => asm volatile ("lock btsl %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Reset => asm volatile ("lock btrl %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Toggle => asm volatile ("lock btcl %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                    },
-                    8 => switch (op) {
-                        .Set => asm volatile ("lock btsq %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Reset => asm volatile ("lock btrq %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                        .Toggle => asm volatile ("lock btcq %[bit], %[ptr]"
-                            // LLVM doesn't support u1 flag register return values
-                            : [result] "={@ccc}" (-> u8),
-                            : [ptr] "*m" (&self.value),
-                              [bit] "X" (@as(T, bit)),
-                            : "cc", "memory"
-                        ),
-                    },
-                    else => @compileError("Invalid atomic type " ++ @typeName(T)),
+                // LLVM14: broken LLVM module found: Operand for indirect constraint must have elementtype attribute
+                // %6 = call i8 asm sideeffect "lock btsl $2, $1", "={@ccc},*m,X,~{cc},~{memory},~{dirflag},~{fpsr},~{flags}"(i32* %3, i32 %5), !dbg !644076
+
+                const mask = @as(T, 1) << bit;
+                const value = switch (op) {
+                    .Set => self.fetchOr(mask, ordering),
+                    .Reset => self.fetchAnd(~mask, ordering),
+                    .Toggle => self.fetchXor(mask, ordering),
                 };
 
-                // TODO: emit appropriate tsan fence if compiling with tsan
-                _ = ordering;
-
-                return @intCast(u1, old_bit);
+                return @boolToInt(value & mask != 0);
             }
         });
     };
