@@ -9321,6 +9321,7 @@ static void resolve_llvm_types_pointer(CodeGen *g, ZigType *type, ResolveStatus 
 
     if (type->data.pointer.host_int_bytes == 0) {
         assertNoError(type_resolve(g, elem_type, ResolveStatusLLVMFwdDecl));
+        // TODO: use opaque pointers everywhere
         type->llvm_type = LLVMPointerType(elem_type->llvm_type, 0);
         uint64_t debug_size_in_bits = 8*get_store_size_bytes(type->size_in_bits);
         uint64_t debug_align_in_bits = 8*type->abi_align;

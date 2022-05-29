@@ -1929,14 +1929,6 @@ static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
         assert(LLVMGetTypeKind(LLVMTypeOf(value)) == LLVMPointerTypeKind);
         assert(LLVMGetTypeKind(LLVMTypeOf(ptr)) == LLVMPointerTypeKind);
 
-        // LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-
-        // TODO(gwenzek): is bitcast necessary ?
-        // LLVMValueRef src_ptr = LLVMBuildBitCast(g->builder, value, ptr_u8, "");
-        // LLVMValueRef dest_ptr = LLVMBuildBitCast(g->builder, ptr, ptr_u8, "");
-        LLVMValueRef src_ptr = value;
-        LLVMValueRef dest_ptr = ptr;
-
         ZigType *usize = g->builtin_types.entry_usize;
         uint64_t size_bytes = LLVMStoreSizeOfType(g->target_data_ref, get_llvm_type(g, child_type));
         uint64_t src_align_bytes = get_abi_alignment(g, child_type);
@@ -1945,7 +1937,7 @@ static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
         assert(src_align_bytes > 0);
         assert(dest_align_bytes > 0);
 
-        ZigLLVMBuildMemCpy(g->builder, dest_ptr, dest_align_bytes, src_ptr, src_align_bytes,
+        ZigLLVMBuildMemCpy(g->builder, ptr, dest_align_bytes, value, src_align_bytes,
                 LLVMConstInt(usize->llvm_type, size_bytes, false),
                 ptr_type->data.pointer.is_volatile);
         return;
@@ -1973,9 +1965,7 @@ static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
     bool big_endian = g->is_big_endian;
 
     LLVMTypeRef containing_int_ty = LLVMIntType(host_int_bytes * 8);
-    // TODO(gwenzek): is bitcast necessary ?
-    LLVMValueRef int_ptr = LLVMBuildBitCast(g->builder, ptr, LLVMPointerType(containing_int_ty, 0), "");
-    LLVMValueRef containing_int = gen_load_untyped(g, containing_int_ty, int_ptr, get_ptr_align(g, ptr_type), ptr_type->data.pointer.is_volatile, "");
+    LLVMValueRef containing_int = gen_load_untyped(g, containing_int_ty, ptr, get_ptr_align(g, ptr_type), ptr_type->data.pointer.is_volatile, "");
 
     uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
     assert(host_bit_count == host_int_bytes * 8);
@@ -2000,7 +1990,7 @@ static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
     LLVMValueRef shifted_value = LLVMBuildShl(g->builder, extended_value, shift_amt_val, "");
     LLVMValueRef ored_value = LLVMBuildOr(g->builder, shifted_value, anded_containing_int, "");
 
-    gen_store(g, ored_value, int_ptr, ptr_type);
+    gen_store(g, ored_value, ptr, ptr_type);
 }
 
 static void gen_var_debug_decl(CodeGen *g, ZigVar *var) {
@@ -2045,10 +2035,8 @@ static LLVMValueRef ir_llvm_value(CodeGen *g, Stage1AirInst *instruction) {
         if (handle_is_ptr(g, instruction->value->type)) {
             render_const_val_global(g, instruction->value, "");
             ZigType *ptr_type = get_pointer_to_type(g, instruction->value->type, true);
-            // TODO(gwenzek): is bitcast necessary ?
             instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value->llvm_global, get_llvm_type(g, ptr_type), "");
         } else {
-            // TODO(gwenzek): is bitcast necessary ?
             instruction->llvm_value = LLVMBuildBitCast(g->builder, instruction->value->llvm_value,
                     get_llvm_type(g, instruction->value->type), "");
         }
@@ -2290,8 +2278,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                     break;
                 case FnWalkIdCall: {
                     LLVMTypeRef ptr_to_int_type_ref = LLVMPointerType(LLVMIntType((unsigned)ty_size * 8), 0);
-                    LLVMValueRef bitcasted = LLVMBuildBitCast(g->builder, val, ptr_to_int_type_ref, "");
-                    LLVMValueRef loaded = LLVMBuildLoad(g->builder, bitcasted, "");
+                    LLVMValueRef loaded = LLVMBuildLoad2(g->builder, ptr_to_int_type_ref, val, "");
                     fn_walk->data.call.gen_param_values->append(loaded);
                     break;
                 }
@@ -2359,6 +2346,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                     break;
                 }
                 case FnWalkIdCall: {
+                    // TODO(gwenzek): make `val` an opaque pointer so that we can remove the bitcast
                     LLVMValueRef abi_ptr_to_struct = LLVMBuildBitCast(g->builder, val, LLVMPointerType(abi_type, 0), "");
                     if (number_of_regs == 1) {
                         LLVMValueRef loaded = LLVMBuildLoad(g->builder, abi_ptr_to_struct, "");
@@ -2842,15 +2830,12 @@ static void gen_async_return(CodeGen *g, Stage1AirInstReturn *instruction) {
         LLVMBuildCondBr(g->builder, need_copy_bit, copy_block, copy_end_block);
 
         LLVMPositionBuilderAtEnd(g->builder, copy_block);
-        LLVMTypeRef ptr_u8 = LLVMPointerType(LLVMInt8Type(), 0);
-        LLVMValueRef dest_ptr_casted = LLVMBuildBitCast(g->builder, awaiter_ret_ptr, ptr_u8, "");
-        LLVMValueRef src_ptr_casted = LLVMBuildBitCast(g->builder, g->cur_ret_ptr, ptr_u8, "");
         bool is_volatile = false;
         uint32_t abi_align = get_abi_alignment(g, ret_type);
         LLVMValueRef byte_count_val = LLVMConstInt(usize_type_ref, type_size(g, ret_type), false);
         ZigLLVMBuildMemCpy(g->builder,
-                dest_ptr_casted, abi_align,
-                src_ptr_casted, abi_align, byte_count_val, is_volatile);
+                awaiter_ret_ptr, abi_align,
+                g->cur_ret_ptr, abi_align, byte_count_val, is_volatile);
         LLVMBuildBr(g->builder, copy_end_block);
 
         LLVMPositionBuilderAtEnd(g->builder, copy_end_block);
@@ -2879,11 +2864,12 @@ static LLVMValueRef gen_convert_to_c_abi(CodeGen *g, LLVMValueRef location, LLVM
     size_t size = type_size(g, return_type);
 
     LLVMTypeRef abi_return_type = get_llvm_c_abi_type(g, return_type);
-    LLVMTypeRef abi_return_type_pointer = LLVMPointerType(abi_return_type, 0);
 
     if (size < 8) {
+        // TOOD(gwenzek): use opaque pointer so that we can remove the bitcast
+        LLVMTypeRef abi_return_type_pointer = LLVMPointerType(abi_return_type, 0);
         LLVMValueRef bitcast = LLVMBuildBitCast(g->builder, value, abi_return_type_pointer, "");
-        return LLVMBuildLoad(g->builder, bitcast, "");
+        return LLVMBuildLoad2(g->builder, abi_return_type, bitcast, "");
     } else {
         LLVMTypeRef i8ptr = LLVMPointerType(LLVMInt8Type(), 0);
         LLVMValueRef bc_location = LLVMBuildBitCast(g->builder, location, i8ptr, "");
@@ -2891,7 +2877,7 @@ static LLVMValueRef gen_convert_to_c_abi(CodeGen *g, LLVMValueRef location, LLVM
 
         LLVMValueRef len = LLVMConstInt(LLVMInt64Type(), size, false);
         ZigLLVMBuildMemCpy(g->builder, bc_location, 8, bc_value, return_type->abi_align, len, false);
-        return LLVMBuildLoad(g->builder, location, "");
+        return LLVMBuildLoad2(g->builder, abi_return_type, location, "");
     }
 }
 
@@ -4436,9 +4422,7 @@ static LLVMValueRef ir_render_load_ptr(CodeGen *g, Stage1Air *executable,
     bool big_endian = g->is_big_endian;
 
     LLVMTypeRef containing_int_ty = LLVMIntType(host_int_bytes * 8);
-    LLVMValueRef int_ptr = LLVMBuildBitCast(g->builder, ptr, LLVMPointerType(containing_int_ty, 0), "");
-    // TODO(gwenzek): Could we load directly the correct type instead ?
-    LLVMValueRef containing_int = gen_load_untyped(g, containing_int_ty, int_ptr, get_ptr_align(g, ptr_type), ptr_type->data.pointer.is_volatile, "");
+    LLVMValueRef containing_int = gen_load_untyped(g, containing_int_ty, ptr, get_ptr_align(g, ptr_type), ptr_type->data.pointer.is_volatile, "");
 
     uint32_t host_bit_count = LLVMGetIntTypeWidth(LLVMTypeOf(containing_int));
     assert(host_bit_count == host_int_bytes * 8);
@@ -9467,7 +9451,7 @@ static void add_fp_entry(CodeGen *g, const char *name, uint32_t bit_count, LLVMT
 {
     ZigType *entry = new_type_table_entry(ZigTypeIdFloat);
     entry->llvm_type = type_ref;
-    entry->size_in_bits = 8*LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type);
+    entry->size_in_bits = LLVMSizeOfTypeInBits(g->target_data_ref, entry->llvm_type);
     entry->abi_size = LLVMABISizeOfType(g->target_data_ref, entry->llvm_type);
     entry->abi_align = LLVMABIAlignmentOfType(g->target_data_ref, entry->llvm_type);
     buf_init_from_str(&entry->name, name);
@@ -9533,7 +9517,7 @@ static void define_builtin_types(CodeGen *g) {
         buf_init_from_str(&entry->name, info->name);
 
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                8*LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type),
+                LLVMSizeOfTypeInBits(g->target_data_ref, entry->llvm_type),
                 is_signed ? ZigLLVMEncoding_DW_ATE_signed() : ZigLLVMEncoding_DW_ATE_unsigned());
         entry->data.integral.is_signed = is_signed;
         entry->data.integral.bit_count = size_in_bits;
@@ -9550,7 +9534,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->abi_align = LLVMABIAlignmentOfType(g->target_data_ref, entry->llvm_type);
         buf_init_from_str(&entry->name, "bool");
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                8*LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type),
+                1,
                 ZigLLVMEncoding_DW_ATE_boolean());
         g->builtin_types.entry_bool = entry;
         g->primitive_type_table.put(&entry->name, entry);
@@ -9573,7 +9557,7 @@ static void define_builtin_types(CodeGen *g) {
         entry->data.integral.bit_count = g->pointer_size_bytes * 8;
 
         entry->llvm_di_type = ZigLLVMCreateDebugBasicType(g->dbuilder, buf_ptr(&entry->name),
-                8*LLVMStoreSizeOfType(g->target_data_ref, entry->llvm_type),
+                LLVMSizeOfTypeInBits(g->target_data_ref, entry->llvm_type),
                 is_signed ? ZigLLVMEncoding_DW_ATE_signed() : ZigLLVMEncoding_DW_ATE_unsigned());
         g->primitive_type_table.put(&entry->name, entry);
 

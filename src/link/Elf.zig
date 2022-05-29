@@ -1413,7 +1413,7 @@ fn linkWithLLD(self: *Elf, comp: *Compilation, prog_node: *std.Progress.Node) !v
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
         // it calls exit() and does not reset all global data between invocations.
-        try argv.appendSlice(&[_][]const u8{"/home/guw/github/zig-bootstrap/out/host/bin/ld.lld"});
+        try argv.appendSlice(&[_][]const u8{"/home/guw/github/llvm-project-14.0.4/out/bin/ld.lld"});
         if (is_obj) {
             try argv.append("-r");
         }
