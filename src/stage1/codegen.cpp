@@ -8481,9 +8481,16 @@ static LLVMValueRef gen_const_val(CodeGen *g, ZigValue *const_val, const char *n
                                 if (it_field->gen_index == SIZE_MAX) {
                                     continue;
                                 }
-                                LLVMValueRef child_val = pack_const_int(g, big_int_type_ref,
-                                        const_val->data.x_struct.fields[i]);
                                 uint32_t packed_bits_size = type_size_bits(g, it_field->type_entry);
+                                LLVMValueRef child_val;
+                                // Prevents a ZExt on two integers of the same size
+                                // TODO(gwenzek): should we move this to gen_const_val ?
+                                if (packed_bits_size < size_in_bits) {
+                                    child_val = pack_const_int(g, big_int_type_ref, const_val->data.x_struct.fields[i]);
+                                } else {
+                                    assert(packed_bits_size == size_in_bits);
+                                    child_val = gen_const_val(g, const_val->data.x_struct.fields[i], "");
+                                }
                                 if (is_big_endian) {
                                     LLVMValueRef shift_amt = LLVMConstInt(big_int_type_ref,
                                         size_in_bits - used_bits - packed_bits_size, false);
