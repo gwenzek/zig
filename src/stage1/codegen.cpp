@@ -1445,6 +1445,7 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     ZigType *u8_ptr_type = get_pointer_to_type_extra(g, g->builtin_types.entry_u8, true, false,
             PtrLenUnknown, get_abi_alignment(g, g->builtin_types.entry_u8), 0, 0, false);
     ZigType *str_type = get_slice_type(g, u8_ptr_type);
+    LLVMTypeRef u8 = g->builtin_types.entry_u8->llvm_type;
 
     // Allocate a buffer to hold the fully-formatted error message
     const size_t err_buf_len = strlen(unwrap_err_msg_text) + g->largest_err_name_len;
@@ -1469,21 +1470,20 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
         LLVMConstNull(usize_ty->llvm_type),
         err_val,
     };
-    LLVMTypeRef str = get_llvm_type(g, u8_ptr_type);
-    LLVMValueRef err_name_val = LLVMBuildInBoundsGEP(g->builder, g->err_name_table, err_table_indices, 2, "");
-
-    LLVMValueRef ptr_field_ptr = LLVMBuildStructGEP(g->builder, err_name_val, slice_ptr_index, "");
-    LLVMValueRef err_name_ptr = gen_load_untyped(g, str, ptr_field_ptr, 0, false, "");
-
-    LLVMValueRef len_field_ptr = LLVMBuildStructGEP(g->builder, err_name_val, slice_len_index, "");
-    LLVMValueRef err_name_len = gen_load_untyped(g, usize_ty->llvm_type, len_field_ptr, 0, false, "");
+    LLVMTypeRef str = get_llvm_type(g, str_type);
+    // TODO(gwenzek): err_name_table is a pointer to array of []u8
+    // But I don't think we keep a reference to the array of []u8 type
+    LLVMTypeRef err_name_table_ty = LLVMArrayType(str, (unsigned)g->errors_by_index.length);
+    LLVMValueRef err_name_val = LLVMBuildInBoundsGEP2(g->builder, err_name_table_ty, g->err_name_table, err_table_indices, 2, "");
+    LLVMValueRef err_name_ptr = gen_load_slice_ptr(g, str_type, err_name_val);
+    LLVMValueRef err_name_len = gen_load_slice_len(g, str_type, err_name_val);
 
     LLVMValueRef msg_prefix_len = LLVMConstInt(usize_ty->llvm_type, strlen(unwrap_err_msg_text), false);
     // Points to the beginning of msg_buffer
     LLVMValueRef msg_buffer_ptr_indices[] = {
         LLVMConstNull(usize_ty->llvm_type),
     };
-    LLVMValueRef msg_buffer_ptr = LLVMBuildInBoundsGEP(g->builder, msg_buffer, msg_buffer_ptr_indices, 1, "");
+    LLVMValueRef msg_buffer_ptr = LLVMBuildInBoundsGEP2(g->builder, u8, msg_buffer, msg_buffer_ptr_indices, 1, "");
     // Points to the beginning of the constant prefix message
     LLVMValueRef msg_prefix_ptr_indices[] = {
         LLVMConstNull(usize_ty->llvm_type),
@@ -1496,16 +1496,16 @@ static LLVMValueRef get_safety_crash_err_fn(CodeGen *g) {
     LLVMValueRef msg_buffer_ptr_after_indices[] = {
         msg_prefix_len,
     };
-    LLVMValueRef msg_buffer_ptr_after = LLVMBuildInBoundsGEP(g->builder, msg_buffer, msg_buffer_ptr_after_indices, 1, "");
+    LLVMValueRef msg_buffer_ptr_after = LLVMBuildInBoundsGEP2(g->builder, u8, msg_buffer, msg_buffer_ptr_after_indices, 1, "");
     ZigLLVMBuildMemCpy(g->builder, msg_buffer_ptr_after, 1, err_name_ptr, 1, err_name_len, false);
 
     // Set the slice pointer
-    LLVMValueRef msg_slice_ptr_field_ptr = LLVMBuildStructGEP(g->builder, msg_slice, slice_ptr_index, "");
+    LLVMValueRef msg_slice_ptr_field_ptr = LLVMBuildStructGEP2(g->builder, str, msg_slice, slice_ptr_index, "");
     gen_store_untyped(g, msg_buffer_ptr, msg_slice_ptr_field_ptr, 0, false);
 
     // Set the slice length
     LLVMValueRef slice_len = LLVMBuildNUWAdd(g->builder, msg_prefix_len, err_name_len, "");
-    LLVMValueRef msg_slice_len_field_ptr = LLVMBuildStructGEP(g->builder, msg_slice, slice_len_index, "");
+    LLVMValueRef msg_slice_len_field_ptr = LLVMBuildStructGEP2(g->builder, str, msg_slice, slice_len_index, "");
     gen_store_untyped(g, slice_len, msg_slice_len_field_ptr, 0, false);
 
     // Call panic()
