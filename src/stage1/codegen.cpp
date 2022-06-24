@@ -2366,7 +2366,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                     // TODO(gwenzek): make `val` an opaque pointer so that we can remove the bitcast
                     LLVMValueRef abi_ptr_to_struct = LLVMBuildBitCast(g->builder, val, LLVMPointerType(abi_type, 0), "");
                     if (number_of_regs == 1) {
-                        LLVMValueRef loaded = LLVMBuildLoad(g->builder, abi_ptr_to_struct, "");
+                        LLVMValueRef loaded = LLVMBuildLoad2(g->builder, abi_type, abi_ptr_to_struct, "");
                         fn_walk->data.call.gen_param_values->append(loaded);
                         break;
                     }
@@ -2374,7 +2374,7 @@ static bool iter_function_params_c_abi(CodeGen *g, ZigType *fn_type, FnWalk *fn_
                         LLVMValueRef zero = LLVMConstInt(LLVMInt32Type(), 0, false);
                         LLVMValueRef index = LLVMConstInt(LLVMInt32Type(), i, false);
                         LLVMValueRef indices[] = { zero, index };
-                        LLVMValueRef adjusted_ptr_to_struct = LLVMBuildInBoundsGEP(g->builder, abi_ptr_to_struct, indices, 2, "");
+                        LLVMValueRef adjusted_ptr_to_struct = LLVMBuildInBoundsGEP2(g->builder, abi_type, abi_ptr_to_struct, indices, 2, "");
                         LLVMValueRef loaded = LLVMBuildLoad(g->builder, adjusted_ptr_to_struct, "");
                         fn_walk->data.call.gen_param_values->append(loaded);
                     }
