@@ -1963,9 +1963,10 @@ static void gen_assign_raw(CodeGen *g, LLVMValueRef ptr, ZigType *ptr_type,
     if (ptr_type->data.pointer.vector_index != VECTOR_INDEX_NONE) {
         LLVMValueRef index_val = LLVMConstInt(LLVMInt32Type(),
                 ptr_type->data.pointer.vector_index, false);
-        // TODO(gwenzek): what's going on here ? ptr seeems to be a pointer to vec32
-        // LLVMTypeRef vec_type = LLVMVectorType(get_llvm_type(g, child_type), ptr_type->data.pointer.host_int_bytes);
-        LLVMValueRef loaded_vector = LLVMBuildLoad(g->builder, ptr, "");
+        // Note: LLVMValue ptr is a pointer to a vector,
+        // but ptr_type->llvm_type is a pointer *into* a vector.
+        LLVMTypeRef vec_type = get_llvm_type(g, get_vector_type(g, ptr_type->data.pointer.host_int_bytes, child_type));
+        LLVMValueRef loaded_vector = LLVMBuildLoad2(g->builder, vec_type, ptr, "");
         LLVMValueRef new_vector = LLVMBuildInsertElement(g->builder, loaded_vector, value,
                 index_val, "");
         gen_store(g, new_vector, ptr, ptr_type);
