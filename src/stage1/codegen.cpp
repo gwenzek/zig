@@ -2728,14 +2728,24 @@ static void gen_assert_resume_id(CodeGen *g, Stage1AirInst *source_instr, Resume
 }
 
 static LLVMValueRef gen_resume(CodeGen *g, LLVMValueRef fn_val, LLVMValueRef target_frame_ptr, ResumeId resume_id) {
-    // TODO(gwenzek): add the frame type as argument
     LLVMTypeRef usize_type_ref = g->builtin_types.entry_usize->llvm_type;
-    if (fn_val == nullptr) {
-        LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, frame_fn_ptr_index, "");
-        fn_val = LLVMBuildLoad(g->builder, fn_ptr_ptr, "");
-    }
+    assert(fn_val != nullptr);
     LLVMValueRef arg_val = LLVMConstSub(LLVMConstAllOnes(usize_type_ref),
             LLVMConstInt(usize_type_ref, resume_id, false));
+    LLVMValueRef args[] = {target_frame_ptr, arg_val};
+    return ZigLLVMBuildCall(g->builder, fn_val, args, 2, ZigLLVM_Fast, ZigLLVM_CallAttrAuto, "");
+}
+
+static LLVMValueRef gen_resume_frame(CodeGen *g, ZigType *frame_type, LLVMValueRef target_frame_ptr, ResumeId resume_id) {
+    // TODO(gwenzek): frame_type is the pointer type, not the pointee type
+    // get_llvm_type(g, frame_type),
+    LLVMValueRef fn_ptr_ptr = LLVMBuildStructGEP(g->builder, target_frame_ptr, frame_fn_ptr_index, "");
+    // LLVMTypeRef fn_type = here also it's not clear which type we should use
+    // LLVMValueRef fn_val = LLVMBuildLoad2(g->builder, fn_type, fn_ptr_ptr, "");
+    LLVMValueRef fn_val = LLVMBuildLoad(g->builder, fn_ptr_ptr, "");
+    LLVMTypeRef usize = g->builtin_types.entry_usize->llvm_type;
+    LLVMValueRef arg_val = LLVMConstSub(LLVMConstAllOnes(usize),
+            LLVMConstInt(usize, resume_id, f alse));
     LLVMValueRef args[] = {target_frame_ptr, arg_val};
     return ZigLLVMBuildCall(g->builder, fn_val, args, 2, ZigLLVM_Fast, ZigLLVM_CallAttrAuto, "");
 }
@@ -2837,9 +2847,7 @@ static void gen_async_return(CodeGen *g, Stage1AirInstReturn *instruction) {
         // If the awaiter result pointer is non-null, we need to copy the result to there.
         LLVMBasicBlockRef copy_block = LLVMAppendBasicBlock(g->cur_fn_val, "CopyResult");
         LLVMBasicBlockRef copy_end_block = LLVMAppendBasicBlock(g->cur_fn_val, "CopyResultEnd");
-
-        LLVMTypeRef cur_frame_type = get_llvm_type(g, g->cur_fn->frame_type->data.frame.locals_struct);
-        LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP2(g->builder, cur_frame_type, g->cur_frame_ptr, frame_ret_start + 1, "");
+        LLVMValueRef awaiter_ret_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, frame_ret_start + 1, "");
         LLVMValueRef awaiter_ret_ptr = LLVMBuildLoad(g->builder, awaiter_ret_ptr_ptr, "");
         LLVMValueRef zero_ptr = LLVMConstNull(LLVMTypeOf(awaiter_ret_ptr));
         LLVMValueRef need_copy_bit = LLVMBuildICmp(g->builder, LLVMIntNE, awaiter_ret_ptr, zero_ptr, "");
@@ -2856,7 +2864,7 @@ static void gen_async_return(CodeGen *g, Stage1AirInstReturn *instruction) {
 
         LLVMPositionBuilderAtEnd(g->builder, copy_end_block);
         if (codegen_fn_has_err_ret_tracing_arg(g, ret_type)) {
-            LLVMValueRef awaiter_trace_ptr_ptr = LLVMBuildStructGEP2(g->builder, cur_frame_type, g->cur_frame_ptr,
+            LLVMValueRef awaiter_trace_ptr_ptr = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr,
                     frame_index_trace_arg(g, ret_type) + 1, "");
             LLVMValueRef dest_trace_ptr = LLVMBuildLoad(g->builder, awaiter_trace_ptr_ptr, "");
             bool is_llvm_alloca;
@@ -4872,14 +4880,16 @@ static void render_async_spills(CodeGen *g) {
         }
     }
 
-    ZigType *frame_type = g->cur_fn->frame_type->data.frame.locals_struct;
+    ZigType *frame_type = g
+    // frame_type->data.frame.locals_struct->cur_fn->frame_type->data.frame.locals_struct;
 
     for (size_t alloca_i = 0; alloca_i < g->cur_fn->alloca_gen_list.length; alloca_i += 1) {
         Stage1AirInstAlloca *instruction = g->cur_fn->alloca_gen_list.at(alloca_i);
         if (instruction->field_index == SIZE_MAX)
             continue;
 
-        size_t gen_index = frame_type->data.structure.fields[instruction->field_index]->gen_index;
+        size_t gen_index = frame_type
+        // frame_type->data.frame.locals_struct->data.structure.fields[instruction->field_index]->gen_index;
         instruction->base.llvm_value = LLVMBuildStructGEP(g->builder, g->cur_frame_ptr, gen_index,
                 instruction->name_hint);
     }
@@ -7615,8 +7625,7 @@ static LLVMValueRef ir_render_resume(CodeGen *g, Stage1Air *executable, Stage1Ai
     LLVMValueRef frame = ir_llvm_value(g, instruction->frame);
     ZigType *frame_type = instruction->frame->value->type;
     assert(frame_type->id == ZigTypeIdAnyFrame);
-
-    gen_resume(g, nullptr, frame, ResumeIdManual);
+    gen_resume_frame(g, frame_type, frame, ResumeIdManual);
     return nullptr;
 }
 
