@@ -873,6 +873,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         },
         // These builtins take no args and do not consume the result pointer.
         .src,
+        .caller_src,
         .This,
         .return_address,
         .error_return_trace,

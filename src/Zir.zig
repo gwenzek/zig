@@ -1929,6 +1929,9 @@ pub const Inst = struct {
         /// Implements the `@frameAddress` builtin.
         /// `operand` is `src_node: i32`.
         frame_address,
+        /// Implements the `@callerSrc` builtin.
+        /// `operand` is `src_node: i32`.
+        caller_src,
         /// Same as `alloc` from `Tag` but may contain an alignment instruction.
         /// `operand` is payload index to `AllocExtended`.
         /// `small`:

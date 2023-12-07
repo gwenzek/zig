@@ -531,6 +531,7 @@ const Writer = struct {
             .this,
             .ret_addr,
             .error_return_trace,
+            .caller_src,
             .frame,
             .frame_address,
             .breakpoint,
