@@ -438,7 +438,7 @@ pub const FrameIndex = enum(u32) {
             try writer.writeAll(@tagName(fi));
         } else {
             try writer.writeByte('(');
-            try std.fmt.formatType(@intFromEnum(fi), fmt, options, writer, 0);
+            try std.fmt.formatType(@intFromEnum(fi), fmt, options, null, writer, 0);
             try writer.writeByte(')');
         }
     }
@@ -458,9 +458,9 @@ pub const Symbol = struct {
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         try writer.writeAll("Symbol(");
-        try std.fmt.formatType(sym.atom_index, fmt, options, writer, 0);
+        try std.fmt.formatType(sym.atom_index, fmt, options, null, writer, 0);
         try writer.writeAll(", ");
-        try std.fmt.formatType(sym.sym_index, fmt, options, writer, 0);
+        try std.fmt.formatType(sym.sym_index, fmt, options, null, writer, 0);
         try writer.writeByte(')');
     }
 };

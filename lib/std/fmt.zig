@@ -83,13 +83,15 @@ pub fn format(
 ) !void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
+    // const fmt_loc = @callerSrc();
+    const fmt_loc = @callerSrc();
     if (args_type_info != .Struct) {
-        @compileError("expected tuple or struct argument, found " ++ @typeName(ArgsType));
+        fmtError(fmt_loc, "expected tuple or struct argument, found " ++ @typeName(ArgsType));
     }
 
     const fields_info = args_type_info.Struct.fields;
     if (fields_info.len > max_format_args) {
-        @compileError("32 arguments max are supported per format call");
+        fmtError(fmt_loc, "32 arguments max are supported per format call");
     }
 
     @setEvalBranchQuota(2000000);
@@ -128,7 +130,7 @@ pub fn format(
         if (i >= fmt.len) break;
 
         if (fmt[i] == '}') {
-            @compileError("missing opening {");
+            fmtError(fmt_loc, "missing opening {");
         }
 
         // Get past the {
@@ -141,7 +143,7 @@ pub fn format(
         const fmt_end = i;
 
         if (i >= fmt.len) {
-            @compileError("missing closing }");
+            fmtError(fmt_loc, "missing closing }");
         }
 
         // Get past the }
@@ -153,7 +155,7 @@ pub fn format(
             .none => null,
             .number => |pos| pos,
             .named => |arg_name| meta.fieldIndex(ArgsType, arg_name) orelse
-                @compileError("no argument with name '" ++ arg_name ++ "'"),
+                fmtError(fmt_loc, "no argument with name '" ++ arg_name ++ "'"),
         };
 
         const width = switch (placeholder.width) {
@@ -161,8 +163,8 @@ pub fn format(
             .number => |v| v,
             .named => |arg_name| blk: {
                 const arg_i = comptime meta.fieldIndex(ArgsType, arg_name) orelse
-                    @compileError("no argument with name '" ++ arg_name ++ "'");
-                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too few arguments");
+                    fmtError(fmt_loc, "no argument with name '" ++ arg_name ++ "'");
+                _ = comptime arg_state.nextArg(arg_i) orelse fmtError(fmt_loc, "too few arguments");
                 break :blk @field(args, arg_name);
             },
         };
@@ -172,14 +174,14 @@ pub fn format(
             .number => |v| v,
             .named => |arg_name| blk: {
                 const arg_i = comptime meta.fieldIndex(ArgsType, arg_name) orelse
-                    @compileError("no argument with name '" ++ arg_name ++ "'");
-                _ = comptime arg_state.nextArg(arg_i) orelse @compileError("too few arguments");
+                    fmtError(fmt_loc, "no argument with name '" ++ arg_name ++ "'");
+                _ = comptime arg_state.nextArg(arg_i) orelse fmtError(fmt_loc, "too few arguments");
                 break :blk @field(args, arg_name);
             },
         };
 
         const arg_to_print = comptime arg_state.nextArg(arg_pos) orelse
-            @compileError("too few arguments");
+            fmtError(fmt_loc, "too few arguments");
 
         try formatType(
             @field(args, fields_info[arg_to_print].name),
@@ -190,6 +192,7 @@ pub fn format(
                 .width = width,
                 .precision = precision,
             },
+            fmt_loc,
             writer,
             std.options.fmt_max_depth,
         );
@@ -199,8 +202,8 @@ pub fn format(
         const missing_count = arg_state.args_len - @popCount(arg_state.used_args);
         switch (missing_count) {
             0 => unreachable,
-            1 => @compileError("unused argument in '" ++ fmt ++ "'"),
-            else => @compileError(comptimePrint("{d}", .{missing_count}) ++ " unused arguments in '" ++ fmt ++ "'"),
+            1 => fmtError(fmt_loc, "unused argument in '" ++ fmt ++ "'"),
+            else => fmtError(fmt_loc, comptimePrint("{d}", .{missing_count}) ++ " unused arguments in '" ++ fmt ++ "'"),
         }
     }
 }
@@ -401,7 +404,7 @@ pub const ArgState = struct {
     }
 };
 
-pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @TypeOf(writer).Error!void {
+pub fn formatAddress(value: anytype, options: FormatOptions, fmt_loc: ?std.builtin.SourceLocation, writer: anytype) @TypeOf(writer).Error!void {
     _ = options;
     const T = @TypeOf(value);
 
@@ -424,7 +427,7 @@ pub fn formatAddress(value: anytype, options: FormatOptions, writer: anytype) @T
         else => {},
     }
 
-    @compileError("cannot format non-pointer type " ++ @typeName(T) ++ " with * specifier");
+    fmtError(fmt_loc, "cannot format non-pointer type " ++ @typeName(T) ++ " with * specifier");
 }
 
 // This ANY const is a workaround for: https://github.com/ziglang/zig/issues/7948
@@ -455,14 +458,23 @@ fn stripOptionalOrErrorUnionSpec(comptime fmt: []const u8) []const u8 {
         fmt[1..];
 }
 
-pub fn invalidFmtError(comptime fmt: []const u8, value: anytype) void {
-    @compileError("invalid format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
+pub fn invalidFmtError(comptime fmt_loc: ?std.builtin.SourceLocation, comptime fmt: []const u8, value: anytype) void {
+    fmtError(fmt_loc, "invalid format string '" ++ fmt ++ "' for type '" ++ @typeName(@TypeOf(value)) ++ "'");
+}
+
+pub fn fmtError(comptime fmt_loc: ?std.builtin.SourceLocation, comptime msg: []const u8) void {
+    if (fmt_loc) |loc| {
+        @compileError(comptimePrint("{s}\nstd.format called from {s}:{d}:{d}", .{ msg, loc.file, loc.line, loc.column }));
+    } else {
+        @compileError(msg);
+    }
 }
 
 pub fn formatType(
     value: anytype,
     comptime fmt: []const u8,
     options: FormatOptions,
+    comptime fmt_loc: ?std.builtin.SourceLocation,
     writer: anytype,
     max_depth: usize,
 ) @TypeOf(writer).Error!void {
@@ -475,7 +487,7 @@ pub fn formatType(
     } else fmt;
 
     if (comptime std.mem.eql(u8, actual_fmt, "*")) {
-        return formatAddress(value, options, writer);
+        return formatAddress(value, options, fmt_loc, writer);
     }
 
     if (std.meta.hasFn(T, "format")) {
@@ -487,42 +499,42 @@ pub fn formatType(
             return formatValue(value, actual_fmt, options, writer);
         },
         .Void => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt_loc, fmt, value);
             return formatBuf("void", options, writer);
         },
         .Bool => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt_loc, fmt, value);
             return formatBuf(if (value) "true" else "false", options, writer);
         },
         .Optional => {
             if (actual_fmt.len == 0 or actual_fmt[0] != '?')
-                @compileError("cannot format optional without a specifier (i.e. {?} or {any})");
+                fmtError(fmt_loc, "cannot format optional without a specifier (i.e. {?} or {any})");
             const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             if (value) |payload| {
-                return formatType(payload, remaining_fmt, options, writer, max_depth);
+                return formatType(payload, remaining_fmt, options, fmt_loc, writer, max_depth);
             } else {
                 return formatBuf("null", options, writer);
             }
         },
         .ErrorUnion => {
             if (actual_fmt.len == 0 or actual_fmt[0] != '!')
-                @compileError("cannot format error union without a specifier (i.e. {!} or {any})");
+                fmtError(fmt_loc, "cannot format error union without a specifier (i.e. {!} or {any})");
             const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             if (value) |payload| {
-                return formatType(payload, remaining_fmt, options, writer, max_depth);
+                return formatType(payload, remaining_fmt, options, fmt_loc, writer, max_depth);
             } else |err| {
-                return formatType(err, "", options, writer, max_depth);
+                return formatType(err, "", options, fmt_loc, writer, max_depth);
             }
         },
         .ErrorSet => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt_loc, fmt, value);
             try writer.writeAll("error.");
             return writer.writeAll(@errorName(value));
         },
         .Enum => |enumInfo| {
             try writer.writeAll(@typeName(T));
             if (enumInfo.is_exhaustive) {
-                if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+                if (actual_fmt.len != 0) invalidFmtError(fmt_loc, fmt, value);
                 try writer.writeAll(".");
                 try writer.writeAll(@tagName(value));
                 return;
@@ -539,11 +551,11 @@ pub fn formatType(
             }
 
             try writer.writeAll("(");
-            try formatType(@intFromEnum(value), actual_fmt, options, writer, max_depth);
+            try formatType(@intFromEnum(value), actual_fmt, options, fmt_loc, writer, max_depth);
             try writer.writeAll(")");
         },
         .Union => |info| {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt_loc, fmt, value);
             try writer.writeAll(@typeName(T));
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
@@ -554,7 +566,7 @@ pub fn formatType(
                 try writer.writeAll(" = ");
                 inline for (info.fields) |u_field| {
                     if (value == @field(UnionTagType, u_field.name)) {
-                        try formatType(@field(value, u_field.name), ANY, options, writer, max_depth - 1);
+                        try formatType(@field(value, u_field.name), ANY, options, fmt_loc, writer, max_depth - 1);
                     }
                 }
                 try writer.writeAll(" }");
@@ -563,7 +575,7 @@ pub fn formatType(
             }
         },
         .Struct => |info| {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt_loc, fmt, value);
             if (info.is_tuple) {
                 // Skip the type and field names when formatting tuples.
                 if (max_depth == 0) {
@@ -576,7 +588,7 @@ pub fn formatType(
                     } else {
                         try writer.writeAll(", ");
                     }
-                    try formatType(@field(value, f.name), ANY, options, writer, max_depth - 1);
+                    try formatType(@field(value, f.name), ANY, options, fmt_loc, writer, max_depth - 1);
                 }
                 return writer.writeAll(" }");
             }
@@ -593,7 +605,7 @@ pub fn formatType(
                 }
                 try writer.writeAll(f.name);
                 try writer.writeAll(" = ");
-                try formatType(@field(value, f.name), ANY, options, writer, max_depth - 1);
+                try formatType(@field(value, f.name), ANY, options, fmt_loc, writer, max_depth - 1);
             }
             try writer.writeAll(" }");
         },
@@ -601,55 +613,55 @@ pub fn formatType(
             .One => switch (@typeInfo(ptr_info.child)) {
                 .Array => |info| {
                     if (actual_fmt.len == 0)
-                        @compileError("cannot format array ref without a specifier (i.e. {s} or {*})");
+                        fmtError(fmt_loc, "cannot format array ref without a specifier (i.e. {s} or {*})");
                     if (info.child == u8) {
                         switch (actual_fmt[0]) {
                             's', 'x', 'X', 'e', 'E' => {
-                                comptime checkTextFmt(actual_fmt);
+                                comptime checkTextFmt(fmt_loc, actual_fmt);
                                 return formatBuf(value, options, writer);
                             },
                             else => {},
                         }
                     }
                     for (value, 0..) |item, i| {
-                        comptime checkTextFmt(actual_fmt);
+                        comptime checkTextFmt(fmt_loc, actual_fmt);
                         if (i != 0) try formatBuf(", ", options, writer);
                         try formatBuf(item, options, writer);
                     }
                     return;
                 },
                 .Enum, .Union, .Struct => {
-                    return formatType(value.*, actual_fmt, options, writer, max_depth);
+                    return formatType(value.*, actual_fmt, options, fmt_loc, writer, max_depth);
                 },
                 else => return format(writer, "{s}@{x}", .{ @typeName(ptr_info.child), @intFromPtr(value) }),
             },
             .Many, .C => {
                 if (actual_fmt.len == 0)
-                    @compileError("cannot format pointer without a specifier (i.e. {s} or {*})");
+                    fmtError(fmt_loc, "cannot format pointer without a specifier (i.e. {s} or {*})");
                 if (ptr_info.sentinel) |_| {
-                    return formatType(mem.span(value), actual_fmt, options, writer, max_depth);
+                    return formatType(mem.span(value), actual_fmt, options, fmt_loc, writer, max_depth);
                 }
                 if (ptr_info.child == u8) {
                     switch (actual_fmt[0]) {
                         's', 'x', 'X', 'e', 'E' => {
-                            comptime checkTextFmt(actual_fmt);
+                            comptime checkTextFmt(fmt_loc, actual_fmt);
                             return formatBuf(mem.span(value), options, writer);
                         },
                         else => {},
                     }
                 }
-                invalidFmtError(fmt, value);
+                invalidFmtError(fmt_loc, fmt, value);
             },
             .Slice => {
                 if (actual_fmt.len == 0)
-                    @compileError("cannot format slice without a specifier (i.e. {s} or {any})");
+                    fmtError(fmt_loc, "cannot format slice without a specifier (i.e. {s} or {any})");
                 if (max_depth == 0) {
                     return writer.writeAll("{ ... }");
                 }
                 if (ptr_info.child == u8) {
                     switch (actual_fmt[0]) {
                         's', 'x', 'X', 'e', 'E' => {
-                            comptime checkTextFmt(actual_fmt);
+                            comptime checkTextFmt(fmt_loc, actual_fmt);
                             return formatBuf(value, options, writer);
                         },
                         else => {},
@@ -657,7 +669,7 @@ pub fn formatType(
                 }
                 try writer.writeAll("{ ");
                 for (value, 0..) |elem, i| {
-                    try formatType(elem, actual_fmt, options, writer, max_depth - 1);
+                    try formatType(elem, actual_fmt, options, fmt_loc, writer, max_depth - 1);
                     if (i != value.len - 1) {
                         try writer.writeAll(", ");
                     }
@@ -667,14 +679,14 @@ pub fn formatType(
         },
         .Array => |info| {
             if (actual_fmt.len == 0)
-                @compileError("cannot format array without a specifier (i.e. {s} or {any})");
+                fmtError(fmt_loc, "cannot format array without a specifier (i.e. {s} or {any})");
             if (max_depth == 0) {
                 return writer.writeAll("{ ... }");
             }
             if (info.child == u8) {
                 switch (actual_fmt[0]) {
                     's', 'x', 'X', 'e', 'E' => {
-                        comptime checkTextFmt(actual_fmt);
+                        comptime checkTextFmt(fmt_loc, actual_fmt);
                         return formatBuf(&value, options, writer);
                     },
                     else => {},
@@ -682,7 +694,7 @@ pub fn formatType(
             }
             try writer.writeAll("{ ");
             for (value, 0..) |elem, i| {
-                try formatType(elem, actual_fmt, options, writer, max_depth - 1);
+                try formatType(elem, actual_fmt, options, fmt_loc, writer, max_depth - 1);
                 if (i < value.len - 1) {
                     try writer.writeAll(", ");
                 }
@@ -693,28 +705,28 @@ pub fn formatType(
             try writer.writeAll("{ ");
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
-                try formatValue(value[i], actual_fmt, options, writer);
+                try formatValue(value[i], actual_fmt, options, fmt_loc, writer);
                 if (i < info.len - 1) {
                     try writer.writeAll(", ");
                 }
             }
             try writer.writeAll(" }");
         },
-        .Fn => @compileError("unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
+        .Fn => fmtError(fmt_loc, "unable to format function body type, use '*const " ++ @typeName(T) ++ "' for a function pointer type"),
         .Type => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt_loc, fmt, value);
             return formatBuf(@typeName(value), options, writer);
         },
         .EnumLiteral => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt_loc, fmt, value);
             const buffer = [_]u8{'.'} ++ @tagName(value);
             return formatBuf(buffer, options, writer);
         },
         .Null => {
-            if (actual_fmt.len != 0) invalidFmtError(fmt, value);
+            if (actual_fmt.len != 0) invalidFmtError(fmt_loc, fmt, value);
             return formatBuf("null", options, writer);
         },
-        else => @compileError("unable to format type '" ++ @typeName(T) ++ "'"),
+        else => fmtError(fmt_loc, "unable to format type '" ++ @typeName(T) ++ "'"),
     }
 }
 
@@ -754,13 +766,13 @@ pub fn formatIntValue(
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 8) {
             return formatAsciiChar(@as(u8, int_value), options, writer);
         } else {
-            @compileError("cannot print integer that is larger than 8 bits as an ASCII character");
+            fmtError(null, "cannot print integer that is larger than 8 bits as an ASCII character");
         }
     } else if (comptime std.mem.eql(u8, fmt, "u")) {
         if (@typeInfo(@TypeOf(int_value)).Int.bits <= 21) {
             return formatUnicodeCodepoint(@as(u21, int_value), options, writer);
         } else {
-            @compileError("cannot print integer that is larger than 21 bits as an UTF-8 sequence");
+            fmtError(null, "cannot print integer that is larger than 21 bits as an UTF-8 sequence");
         }
     } else if (comptime std.mem.eql(u8, fmt, "b")) {
         base = 2;
@@ -775,7 +787,7 @@ pub fn formatIntValue(
         base = 8;
         case = .lower;
     } else {
-        invalidFmtError(fmt, value);
+        invalidFmtError(null, fmt, value);
     }
 
     return formatInt(int_value, base, case, options, writer);
@@ -964,14 +976,14 @@ pub fn fmtIntSizeBin(value: u64) std.fmt.Formatter(formatSizeBin) {
     return .{ .data = value };
 }
 
-fn checkTextFmt(comptime fmt: []const u8) void {
+fn checkTextFmt(fmt_loc: ?std.builtin.SourceLocation, comptime fmt: []const u8) void {
     if (fmt.len != 1)
-        @compileError("unsupported format string '" ++ fmt ++ "' when formatting text");
+        fmtError("unsupported format string '" ++ fmt ++ "' when formatting text");
     switch (fmt[0]) {
         // Example of deprecation:
-        // '[deprecated_specifier]' => @compileError("specifier '[deprecated_specifier]' has been deprecated, wrap your argument in `std.some_function` instead"),
-        'x' => @compileError("specifier 'x' has been deprecated, wrap your argument in std.fmt.fmtSliceHexLower instead"),
-        'X' => @compileError("specifier 'X' has been deprecated, wrap your argument in std.fmt.fmtSliceHexUpper instead"),
+        // '[deprecated_specifier]' => fmtError(fmt_loc, "specifier '[deprecated_specifier]' has been deprecated, wrap your argument in `std.some_function` instead"),
+        'x' => fmtError(fmt_loc, "specifier 'x' has been deprecated, wrap your argument in std.fmt.fmtSliceHexLower instead"),
+        'X' => fmtError(fmt_loc, "specifier 'X' has been deprecated, wrap your argument in std.fmt.fmtSliceHexUpper instead"),
         else => {},
     }
 }
@@ -982,7 +994,7 @@ pub fn formatText(
     options: FormatOptions,
     writer: anytype,
 ) !void {
-    comptime checkTextFmt(fmt);
+    comptime checkTextFmt(@src(), fmt);
     return formatBuf(bytes, options, writer);
 }
 
@@ -2181,15 +2193,15 @@ test "buffer" {
     {
         var buf1: [32]u8 = undefined;
         var fbs = std.io.fixedBufferStream(&buf1);
-        try formatType(1234, "", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
+        try formatType(1234, "", FormatOptions{}, @src(), fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expect(mem.eql(u8, fbs.getWritten(), "1234"));
 
         fbs.reset();
-        try formatType('a', "c", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
+        try formatType('a', "c", FormatOptions{}, @src(), fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expect(mem.eql(u8, fbs.getWritten(), "a"));
 
         fbs.reset();
-        try formatType(0b1100, "b", FormatOptions{}, fbs.writer(), std.options.fmt_max_depth);
+        try formatType(0b1100, "b", FormatOptions{}, @src(), fbs.writer(), std.options.fmt_max_depth);
         try std.testing.expect(mem.eql(u8, fbs.getWritten(), "1100"));
     }
 }
@@ -2509,7 +2521,7 @@ test "custom" {
             } else if (comptime std.mem.eql(u8, fmt, "d")) {
                 return std.fmt.format(writer, "{d:.3}x{d:.3}", .{ self.x, self.y });
             } else {
-                @compileError("unknown format character: '" ++ fmt ++ "'");
+                fmtError(@src(), "unknown format character: '" ++ fmt ++ "'");
             }
         }
     };
@@ -2685,7 +2697,7 @@ test "formatType max_depth" {
             if (fmt.len == 0) {
                 return std.fmt.format(writer, "({d:.3},{d:.3})", .{ self.x, self.y });
             } else {
-                @compileError("unknown format string: '" ++ fmt ++ "'");
+                fmtError(@src(), "unknown format string: '" ++ fmt ++ "'");
             }
         }
     };
