@@ -16887,20 +16887,27 @@ fn zirCallerSrc(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
     const gpa = sema.gpa;
 
     const caller = sema.mod.reference_table.get(block.src_decl);
-    // caller.referencer: Decl.Index,
-    // caller.src: LazySrcLoc,
 
     var caller_file: []const u8 = "<unknown file>";
     var caller_fn: []const u8 = "<unknown caller>";
-    const line: u32 = 0;
-    const column: u32 = 0;
+    var line: u32 = 0;
+    var column: u32 = 0;
+
     if (caller) |c| {
         const call_decl = mod.declPtr(c.referencer);
         caller_file = try call_decl.getFileScope(mod).fullPathZ(sema.arena);
         caller_fn = try sema.arena.dupe(u8, ip.stringToSlice(call_decl.name));
-        // const extra = sema.code.extraData(Zir.Inst.Src, @intFromEnum(c.referencer)).data;
-        // line = extra.line + 1;
-        // column = extra.column + 1;
+        const caller_src_loc = c.src.toSrcLoc(call_decl, mod);
+
+        // This works, but is crazy expensive cause we need to reparse the full file to find the line.
+        // TODO: find the right information in extraData.
+        loc: {
+            const source = caller_src_loc.file_scope.getSource(gpa) catch break :loc;
+            const span = caller_src_loc.span(gpa) catch break :loc;
+            const loc = std.zig.findLineColumn(source.bytes, span.main);
+            line = @intCast(loc.line + 1);
+            column = @intCast(loc.column + 1);
+        }
     }
 
     const src_loc_ty = try sema.getBuiltinType("SourceLocation");
