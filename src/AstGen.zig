@@ -8471,13 +8471,13 @@ fn builtinCall(
             });
             return rvalue(gz, ri, result, node);
         },
-
         // zig fmt: off
         .This               => return rvalue(gz, ri, try gz.addNodeExtended(.this,               node), node),
         .return_address     => return rvalue(gz, ri, try gz.addNodeExtended(.ret_addr,           node), node),
         .error_return_trace => return rvalue(gz, ri, try gz.addNodeExtended(.error_return_trace, node), node),
         .frame              => return rvalue(gz, ri, try gz.addNodeExtended(.frame,              node), node),
         .frame_address      => return rvalue(gz, ri, try gz.addNodeExtended(.frame_address,      node), node),
+        .caller_src          => return rvalue(gz, ri, try gz.addNodeExtended(.caller_src,          node), node),
         .breakpoint         => return rvalue(gz, ri, try gz.addNodeExtended(.breakpoint,         node), node),
         .in_comptime        => return rvalue(gz, ri, try gz.addNodeExtended(.in_comptime,        node), node),
 

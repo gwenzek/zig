@@ -1230,6 +1230,7 @@ fn analyzeBodyInner(
                     .this               => try sema.zirThis(              block, extended),
                     .ret_addr           => try sema.zirRetAddr(           block, extended),
                     .builtin_src        => try sema.zirBuiltinSrc(        block, extended),
+                    .caller_src         => try sema.zirCallerSrc(         block),
                     .error_return_trace => try sema.zirErrorReturnTrace(  block),
                     .frame              => try sema.zirFrame(             block, extended),
                     .frame_address      => try sema.zirFrameAddress(      block, extended),
@@ -16870,6 +16871,51 @@ fn zirBuiltinSrc(
         (try mod.intValue(Type.u32, extra.line + 1)).toIntern(),
         // column: u32,
         (try mod.intValue(Type.u32, extra.column + 1)).toIntern(),
+    };
+    return Air.internedToRef((try mod.intern(.{ .aggregate = .{
+        .ty = src_loc_ty.toIntern(),
+        .storage = .{ .elems = &fields },
+    } })));
+}
+
+fn zirCallerSrc(sema: *Sema, block: *Block) CompileError!Air.Inst.Ref {
+    const tracy = trace(@src());
+    defer tracy.end();
+
+    const mod = sema.mod;
+    const ip = &mod.intern_pool;
+    const gpa = sema.gpa;
+
+    const caller = sema.mod.reference_table.get(block.src_decl);
+
+    var caller_file: []const u8 = "<unknown file>";
+    var caller_fn: []const u8 = "<unknown caller>";
+    var line: u32 = 0;
+    var column: u32 = 0;
+
+    if (caller) |c| {
+        const call_decl = mod.declPtr(c.referencer);
+        caller_file = try call_decl.getFileScope(mod).fullPathZ(sema.arena);
+        caller_fn = try sema.arena.dupe(u8, ip.stringToSlice(call_decl.name));
+        const caller_src_loc = c.src.toSrcLoc(call_decl, mod);
+
+        // This works, but is crazy expensive cause we need to reparse the full file to find the line.
+        // TODO: find the right information in extraData.
+        loc: {
+            const source = caller_src_loc.file_scope.getSource(gpa) catch break :loc;
+            const span = caller_src_loc.span(gpa) catch break :loc;
+            const loc = std.zig.findLineColumn(source.bytes, span.main);
+            line = @intCast(loc.line + 1);
+            column = @intCast(loc.column + 1);
+        }
+    }
+
+    const src_loc_ty = try sema.getBuiltinType("SourceLocation");
+    const fields = .{
+        try ip.getOrPutAllocatedString(gpa, caller_file),
+        try ip.getOrPutAllocatedString(gpa, caller_fn),
+        (try mod.intValue(Type.u32, line)).toIntern(),
+        (try mod.intValue(Type.u32, column)).toIntern(),
     };
     return Air.internedToRef((try mod.intern(.{ .aggregate = .{
         .ty = src_loc_ty.toIntern(),

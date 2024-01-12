@@ -12,6 +12,7 @@ fn doTheTest() !void {
 const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
+const expectEqualStrings = std.testing.expectEqualStrings;
 
 test "@src" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
