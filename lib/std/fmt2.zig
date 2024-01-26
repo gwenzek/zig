@@ -40,16 +40,40 @@ pub fn writeFn(comptime Writer: type) WriteFn {
     return A.write;
 }
 
-pub fn OptionalHasValue(comptime T_opt: type) type {
+pub fn ReadOptional(comptime T_opt: type) type {
     return struct {
-        pub fn readValue(opq: []const u8) ?[]const u8 {
+        pub fn read(opq: []const u8) ?[]const u8 {
             const x: *const T_opt = @alignCast(@ptrCast(opq.ptr));
             if (x.*) |y| {
                 const T_inner = @TypeOf(y);
+                // This assumes the optional tag is stored **AFTER** the payload.
                 return opq[0..@sizeOf(T_inner)];
             } else {
                 return null;
             }
+        }
+    };
+}
+
+const ErrorOrPayloadEnum = enum(u2) {
+    err,
+    payload,
+};
+
+const ErrorOrPayload = union(ErrorOrPayloadEnum) {
+    err: []const u8,
+    payload: []const u8,
+};
+
+pub fn ReadErrorUnion(comptime T_payload: type) type {
+    return struct {
+        pub fn read(opq: []const u8) ErrorOrPayload {
+            const x: *const anyerror!T_payload = @alignCast(@ptrCast(opq.ptr));
+            _ = x.* catch |err| {
+                return .{ .err = @errorName(err) };
+            };
+            // This assumes the error tag is stored **AFTER** the payload.
+            return .{ .payload = opq[0..@sizeOf(T_payload)] };
         }
     };
 }
@@ -64,6 +88,7 @@ pub const FmtTypeEnum = enum {
     buff,
     any,
     optional,
+    error_union,
     err,
     not_implemented,
 };
@@ -83,7 +108,12 @@ pub const FmtType = union(FmtTypeEnum) {
     optional: struct {
         bytes: SmallSlice,
         skip: u8,
-        readValue: *const fn (opq: []const u8) ?[]const u8,
+        read: *const fn (opq: []const u8) ?[]const u8,
+    },
+    error_union: struct {
+        bytes: SmallSlice,
+        skip: u8,
+        read: *const fn (opq: []const u8) ErrorOrPayload,
     },
     err: u32,
     not_implemented: u0,
@@ -120,13 +150,13 @@ pub const FmtState = struct {
         var i: usize = 0;
         var j: usize = i;
         while (i < self.num_tokens) {
-            i = try self.writeNext(write_ctx, write_fn, value, i);
+            i = try self.writeToken(write_ctx, write_fn, value, i);
             std.debug.assert(i > j);
             j = i;
         }
     }
 
-    fn writeNext(self: FmtState, ctx: *const anyopaque, write_fn: WriteFn, value: []const u8, i: usize) !usize {
+    fn writeToken(self: FmtState, ctx: *const anyopaque, write_fn: WriteFn, value: []const u8, i: usize) !usize {
         var buf: [16]u8 = undefined;
         const token = self.tokens[i];
         _ = switch (token.type) {
@@ -142,11 +172,22 @@ pub const FmtState = struct {
             .buff => try write_fn(ctx, @as(*const []const u8, @alignCast(@ptrCast(value))).*),
             .arr => |arr| try write_fn(ctx, value[arr.start..arr.end]),
             .optional => |opt| {
-                if (opt.readValue(value)) |bytes| {
-                    return self.writeNext(ctx, write_fn, bytes, i + 1);
+                if (opt.read(value)) |bytes| {
+                    return self.writeToken(ctx, write_fn, bytes, i + 1);
                 } else {
                     _ = try write_fn(ctx, "null");
                     return i + opt.skip + 1;
+                }
+            },
+            .error_union => |error_union| {
+                switch (error_union.read(value)) {
+                    .err => |err_name| {
+                        _ = try write_fn(ctx, err_name);
+                        return i + error_union.skip + 1;
+                    },
+                    .payload => |bytes| {
+                        return self.writeToken(ctx, write_fn, bytes, i + 1);
+                    },
                 }
             },
             .any => |fmt_fn| {
@@ -476,7 +517,7 @@ pub fn parseFormat(
                     .precision = precision,
                 },
                 std.options.fmt_max_depth,
-                0,
+                if (field.is_comptime) 0 else @offsetOf(ArgsType, field.name),
             );
         }
     }
@@ -541,6 +582,7 @@ fn comptimeData(comptime field: std.builtin.Type.StructField) ?[]const u8 {
             },
             else => {
                 const buf: [*]const u8 = @ptrCast(value_ptr);
+                // @compileLog("compile time val: ", value_ptr, buf);
                 return buf[0..@sizeOf(T)];
             },
         }
@@ -595,6 +637,15 @@ pub fn addTokensForType(
             state.append(.{ .literal = int }, options);
         },
         .Int => |Int| {
+            // this is a bit annoying, basically for each field, we need different logic for comptime vs runtime value
+            // could this be done above ? addTokensForRuntime vs addTokensForComptime
+            if (comptime_data) |int_slice| {
+                comptime var buf: [64]u8 = undefined;
+                const value: *const T = @alignCast(@ptrCast(int_slice));
+                const int = comptime formatInt(&buf, value.*, 10, .lower, options);
+                state.append(.{ .literal = int }, options);
+                return;
+            }
             const bytes: SmallSlice = .{ .start = base_offset, .end = base_offset + @sizeOf(T) };
             state.append(
                 .{ .integer = .{
@@ -616,23 +667,26 @@ pub fn addTokensForType(
             } else state.append(.{ .boolean = .{ .offset = 0 } }, options);
         },
         .Optional => |opt| {
-            const bytes: SmallSlice = .{ .start = base_offset, .end = base_offset + @sizeOf(T) };
             if (actual_fmt.len == 0 or actual_fmt[0] != '?')
                 @compileError("cannot format optional without a specifier (i.e. {?} or {any})");
-            state.append(.{ .optional = .{ .bytes = bytes, .skip = 0, .readValue = OptionalHasValue(T).readValue } }, .{});
+            const bytes: SmallSlice = .{ .start = base_offset, .end = base_offset + @sizeOf(T) };
+            state.append(.{ .optional = .{ .bytes = bytes, .skip = 0, .read = ReadOptional(T).read } }, .{});
             const opt_skip: *u8 = &(state.tokens[state.num_tokens - 1].type.optional.skip);
             const opt_idx = state.num_tokens;
             const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
             addTokensForType(opt.child, remaining_fmt, state, comptime_data, options, max_depth, base_offset);
             opt_skip.* = state.num_tokens - opt_idx;
         },
-        .ErrorUnion => |e| {
+        .ErrorUnion => |err_info| {
             if (actual_fmt.len == 0 or actual_fmt[0] != '!')
                 @compileError("cannot format error union without a specifier (i.e. {!} or {any})");
+            const bytes: SmallSlice = .{ .start = base_offset, .end = base_offset + @sizeOf(T) };
+            state.append(.{ .error_union = .{ .bytes = bytes, .skip = 0, .read = ReadErrorUnion(err_info.payload).read } }, .{});
+            const err_skip: *u8 = &(state.tokens[state.num_tokens - 1].type.error_union.skip);
+            const err_idx = state.num_tokens;
             const remaining_fmt = comptime stripOptionalOrErrorUnionSpec(actual_fmt);
-            var res = addTokensForType(e.payload, remaining_fmt, state, comptime_data, options, max_depth, base_offset);
-            res.wrapping = .err;
-            return res;
+            addTokensForType(err_info.payload, remaining_fmt, state, comptime_data, options, max_depth, base_offset);
+            err_skip.* = state.num_tokens - err_idx;
         },
         .Enum, .EnumLiteral, .ErrorSet, .Float, .ComptimeFloat, .Union, .Struct, .Vector => {
             state.append(.not_implemented, .{});
@@ -763,6 +817,11 @@ pub fn fmt2_test() !void {
     y = 5;
     try expectFmt("optional: 5", "optional: {?}", .{y});
 
+    const zig_version = std.SemanticVersion{ .major = 0, .minor = 12, .patch = 0 };
+    try expectFmt("0.12.0", "{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, zig_version.patch });
+    try expectFmt("0.12.2", "{d}.{d}.{d}", .{ zig_version.major, zig_version.minor, x });
+    try expectFmt("0.5.2", "{d}.{d}.{d}", .{ zig_version.major, y.?, x });
+
     var value: *align(1) i32 = undefined;
     value = @ptrFromInt(0xdeadbeef);
     try expectFmt("pointer: i32@deadbeef\n", "pointer: {*}\n", .{value});
@@ -782,8 +841,15 @@ pub fn fmt2_test() !void {
 
     const some_bytes = "\xCA\xFE\xBA\xBE";
     try expectFmt("lowercase: cafebabe\n", "lowercase: {x}\n", .{std.fmt.fmtSliceHexLower(some_bytes)});
+
+    var z: anyerror!i32 = x;
+    z = 42;
+    try expectFmt("error: 42\n", "error: {!}\n", .{z});
+    z = error.OutOfMemory;
+    try expectFmt("error: OutOfMemory\n", "error: {!}\n", .{z});
+
     // Not working
-    try expectFmt("type: u8", "type: {}", .{u8});
+    // try expectFmt("type: u8", "type: {}", .{u8});
     // std.log.warn("{}", .{@typeInfo(@typeInfo(@TypeOf("hello")).Pointer.child)});
     // try expectFmt("pointer: 5@deadbeef\n", "pointer: {any}\n", .{&x});
 }
