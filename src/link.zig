@@ -850,7 +850,7 @@ pub const File = struct {
                 .wasm => Wasm,
                 .spirv => SpirV,
                 .plan9 => Plan9,
-                .nvptx => NvPtx,
+                .nvptx => Elf,
             };
         }
 
