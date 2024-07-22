@@ -11,7 +11,7 @@ export fn signal_ret() callconv(.Signal) noreturn {}
 // error
 // backend=stage2
 // target=x86_64-linux
-// 
+//
 // :1:28: error: first parameter of function with 'Interrupt' calling convention must be a pointer type
 // :2:43: error: second parameter of function with 'Interrupt' calling convention must be a 64-bit integer
 // :3:51: error: 'Interrupt' calling convention supports up to 2 parameters, found 3

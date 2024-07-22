@@ -10293,7 +10293,7 @@ pub const FuncGen = struct {
         return self.wip.cast(.addrspacecast, operand, try o.lowerType(inst_ty), "");
     }
 
-    fn amdgcnWorkIntrinsic(
+    fn gpuWorkIntrinsic(
         self: *FuncGen,
         dimension: u32,
         default: u32,
@@ -10309,45 +10309,53 @@ pub const FuncGen = struct {
 
     fn airWorkItemId(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
-        const target = o.module.getTarget();
-        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
-
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
-        return self.amdgcnWorkIntrinsic(dimension, 0, "amdgcn.workitem.id");
+
+        const target = o.module.getTarget();
+        return switch (target.cpu.arch) {
+            .amdgcn => self.gpuWorkIntrinsic(dimension, 0, "amdgcn.workitem.id"),
+            .nvptx64, .nvptx => self.gpuWorkIntrinsic(dimension, 0, "nvvm.read.ptx.sreg.ntid"),
+            else => unreachable, // TODO is to port this function to other GPU architectures
+        };
     }
 
     fn airWorkGroupSize(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
-        const target = o.module.getTarget();
-        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
-
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
         if (dimension >= 3) return .@"1";
 
-        // Fetch the dispatch pointer, which points to this structure:
-        // https://github.com/RadeonOpenCompute/ROCR-Runtime/blob/adae6c61e10d371f7cbc3d0e94ae2c070cab18a4/src/inc/hsa.h#L2913
-        const dispatch_ptr =
-            try self.wip.callIntrinsic(.normal, .none, .@"amdgcn.dispatch.ptr", &.{}, &.{}, "");
-
-        // Load the work_group_* member from the struct as u16.
-        // Just treat the dispatch pointer as an array of u16 to keep things simple.
-        const workgroup_size_ptr = try self.wip.gep(.inbounds, .i16, dispatch_ptr, &.{
-            try o.builder.intValue(try o.lowerType(Type.usize), 2 + dimension),
-        }, "");
-        const workgroup_size_alignment = comptime Builder.Alignment.fromByteUnits(2);
-        return self.wip.load(.normal, .i16, workgroup_size_ptr, workgroup_size_alignment, "");
+        const target = o.module.getTarget();
+        return switch (target.cpu.arch) {
+            .amdgcn => {
+                // Fetch the dispatch pointer, which points to this structure:
+                // https://github.com/RadeonOpenCompute/ROCR-Runtime/blob/adae6c61e10d371f7cbc3d0e94ae2c070cab18a4/src/inc/hsa.h#L2913
+                const dispatch_ptr = try self.wip.callIntrinsic(.normal, .none, .@"amdgcn.dispatch.ptr", &.{}, &.{}, "");
+                // Load the work_group_* member from the struct as u16.
+                // Just treat the dispatch pointer as an array of u16 to keep things simple.
+                const workgroup_size_ptr = try self.wip.gep(.inbounds, .i16, dispatch_ptr, &.{
+                    try o.builder.intValue(try o.lowerType(Type.usize), 2 + dimension),
+                }, "");
+                const workgroup_size_alignment = comptime Builder.Alignment.fromByteUnits(2);
+                return self.wip.load(.normal, .i16, workgroup_size_ptr, workgroup_size_alignment, "");
+            },
+            .nvptx64, .nvptx => self.gpuWorkIntrinsic(dimension, 0, "nvvm.read.ptx.sreg.ntid"),
+            else => unreachable, // TODO is to port this function to other GPU architectures
+        };
     }
 
     fn airWorkGroupId(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.dg.object;
-        const target = o.module.getTarget();
-        assert(target.cpu.arch == .amdgcn); // TODO is to port this function to other GPU architectures
-
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const dimension = pl_op.payload;
-        return self.amdgcnWorkIntrinsic(dimension, 0, "amdgcn.workgroup.id");
+
+        const target = o.module.getTarget();
+        return switch (target.cpu.arch) {
+            .amdgcn => self.gpuWorkIntrinsic(dimension, 0, "amdgcn.workgroup.id"),
+            .nvptx64, .nvptx => self.gpuWorkIntrinsic(dimension, 0, "nvvm.read.ptx.sreg.ctaid"),
+            else => unreachable, // TODO is to port this function to other GPU architectures
+        };
     }
 
     fn getErrorNameTable(self: *FuncGen) Allocator.Error!Builder.Variable.Index {

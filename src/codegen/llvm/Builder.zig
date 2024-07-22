@@ -2729,6 +2729,21 @@ pub const Intrinsic = enum {
     @"amdgcn.workgroup.id.z",
     @"amdgcn.dispatch.ptr",
 
+    // NVPTX
+    @"nvvm.read.ptx.sreg.tid.x",
+    @"nvvm.read.ptx.sreg.tid.y",
+    @"nvvm.read.ptx.sreg.tid.z",
+    @"nvvm.read.ptx.sreg.ntid.x",
+    @"nvvm.read.ptx.sreg.ntid.y",
+    @"nvvm.read.ptx.sreg.ntid.z",
+    @"nvvm.read.ptx.sreg.ctaid.x",
+    @"nvvm.read.ptx.sreg.ctaid.y",
+    @"nvvm.read.ptx.sreg.ctaid.z",
+    @"nvvm.read.ptx.sreg.nctaid.x",
+    @"nvvm.read.ptx.sreg.nctaid.y",
+    @"nvvm.read.ptx.sreg.nctaid.z",
+    @"nvvm.read.ptx.sreg.warpsize",
+
     // WebAssembly
     @"wasm.memory.size",
     @"wasm.memory.grow",
@@ -3882,6 +3897,99 @@ pub const Intrinsic = enum {
                     .kind = .{ .type = Type.ptr_amdgpu_constant },
                     .attrs = &.{.{ .@"align" = Builder.Alignment.fromByteUnits(4) }},
                 },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+
+        // NVPTX
+        .@"nvvm.read.ptx.sreg.tid.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.tid.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.tid.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.ntid.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.ntid.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.ntid.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.ctaid.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.ctaid.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.ctaid.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.nctaid.x" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.nctaid.y" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.nctaid.z" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
+            },
+            .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
+        },
+        .@"nvvm.read.ptx.sreg.warpsize" = .{
+            .ret_len = 1,
+            .params = &.{
+                .{ .kind = .{ .type = .i32 } },
             },
             .attrs = &.{ .nocallback, .nofree, .nosync, .nounwind, .speculatable, .willreturn, .{ .memory = Attribute.Memory.all(.none) } },
         },
