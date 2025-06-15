@@ -27,6 +27,23 @@
 //! All of this must be done with only referring to the state inside this struct
 //! because this work will be done in a dedicated thread.
 
+const std = @import("std");
+const fs = std.fs;
+const assert = std.debug.assert;
+const ascii = std.ascii;
+const Allocator = std.mem.Allocator;
+const Cache = std.Build.Cache;
+const ThreadPool = std.Thread.Pool;
+const WaitGroup = std.Thread.WaitGroup;
+const ErrorBundle = std.zig.ErrorBundle;
+const canonical_sep = fs.path.sep_posix;
+const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+
+const Package = @import("../Package.zig");
+const Manifest = Package.Manifest;
+const git = @import("Fetch/git.zig");
+
 arena: std.heap.ArenaAllocator,
 location: Location,
 location_tok: std.zig.Ast.TokenIndex,
@@ -519,7 +536,8 @@ fn runResource(
         // directory.
         f.computed_hash = try computeHash(f, pkg_path, filter);
 
-        break :blk if (unpack_result.root_dir.len > 0)
+        const dot_root_dir = unpack_result.root_dir.len == 1 and unpack_result.root_dir[0] == '.';
+        break :blk if (unpack_result.root_dir.len > 0 and !dot_root_dir)
             try fs.path.join(arena, &.{ tmp_dir_sub_path, unpack_result.root_dir })
         else
             tmp_dir_sub_path;
@@ -1747,8 +1765,6 @@ fn normalizePathAlloc(arena: Allocator, pkg_path: []const u8) ![]const u8 {
     return normalized;
 }
 
-const canonical_sep = fs.path.sep_posix;
-
 fn normalizePath(bytes: []u8) void {
     assert(fs.path.sep != canonical_sep);
     std.mem.replaceScalar(u8, bytes, fs.path.sep, canonical_sep);
@@ -1800,22 +1816,7 @@ pub fn depDigest(pkg_root: Cache.Path, cache_root: Cache.Directory, dep: Manifes
     }
 }
 
-const builtin = @import("builtin");
-const std = @import("std");
-const fs = std.fs;
-const assert = std.debug.assert;
-const ascii = std.ascii;
-const Allocator = std.mem.Allocator;
-const Cache = std.Build.Cache;
-const ThreadPool = std.Thread.Pool;
-const WaitGroup = std.Thread.WaitGroup;
 const Fetch = @This();
-const git = @import("Fetch/git.zig");
-const Package = @import("../Package.zig");
-const Manifest = Package.Manifest;
-const ErrorBundle = std.zig.ErrorBundle;
-const native_os = builtin.os.tag;
-
 test {
     _ = Filter;
     _ = FileType;
