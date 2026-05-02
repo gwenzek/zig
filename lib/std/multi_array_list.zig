@@ -372,23 +372,22 @@ pub fn MultiArrayList(comptime T: type) type {
         /// sets the given index to the specified element.
         ///
         /// Asserts that capacity is sufficient to hold an additional item.
-        pub fn insertAssumeCapacity(self: *Self, index: usize, elem: T) void {
+        pub fn insertAssumeCapacity(self: *Self, i: usize, elem: T) void {
             assert(self.len < self.capacity);
-            assert(index <= self.len);
+            assert(i <= self.len);
             self.len += 1;
             const entry = switch (@typeInfo(T)) {
                 .@"struct" => elem,
                 .@"union" => Elem.fromT(elem),
                 else => unreachable,
             };
-            const slices = self.slice();
-            inline for (fields, 0..) |field_info, field_index| {
-                const field_slice = slices.items(@as(Field, @enumFromInt(field_index)));
-                var i: usize = self.len - 1;
-                while (i > index) : (i -= 1) {
-                    field_slice[i] = field_slice[i - 1];
-                }
-                field_slice[index] = @field(entry, field_info.name);
+
+            // Visit fields in their order of appearance in the layout,
+            // making the memory access more predictable.
+            inline for (sizes.fields) |field_index| {
+                const field_slice = self.items(@enumFromInt(field_index));
+                @memmove(field_slice[i + 1 .. self.len], field_slice[i .. self.len - 1]);
+                field_slice[i] = @field(entry, fields[field_index].name);
             }
         }
 
@@ -407,9 +406,8 @@ pub fn MultiArrayList(comptime T: type) type {
         /// item in the list into its position. Fast, but does not
         /// retain list ordering.
         pub fn swapRemove(self: *Self, index: usize) void {
-            const slices = self.slice();
-            inline for (fields, 0..) |_, i| {
-                const field_slice = slices.items(@as(Field, @enumFromInt(i)));
+            inline for (sizes.fields) |field_index| {
+                const field_slice = self.items(@enumFromInt(field_index));
                 field_slice[index] = field_slice[self.len - 1];
                 field_slice[self.len - 1] = undefined;
             }
