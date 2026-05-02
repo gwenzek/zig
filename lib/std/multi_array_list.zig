@@ -1,10 +1,10 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const assert = std.debug.assert;
 const meta = std.meta;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const testing = std.testing;
+const builtin = @import("builtin");
 
 /// A MultiArrayList stores a list of a struct or tagged union type.
 /// Instead of storing a single list of items, MultiArrayList
@@ -142,7 +142,7 @@ pub fn MultiArrayList(comptime T: type) type {
 
             pub fn toMultiArrayList(self: Slice) Self {
                 if (self.ptrs.len == 0 or self.capacity == 0) {
-                    return .{};
+                    return .empty;
                 }
                 return .{
                     .bytes = self.ptrs[sizes.fields[0]],
@@ -186,24 +186,29 @@ pub fn MultiArrayList(comptime T: type) type {
         const Self = @This();
 
         const fields = meta.fields(Elem);
-        /// `sizes.bytes` is an array of @sizeOf each T field. Sorted by alignment, descending.
-        /// `sizes.fields` is an array mapping from `sizes.bytes` array index to field index.
+
+        /// Describes the memory layout of the MultiArrayList.
         /// `sizes.big_align` is the overall alignment of the allocation, which equals the maximum field alignment.
+        /// `sizes.bytes_per_capacity` is the number of bytes needed per capacity, it's the sum of the size of each T fields.
+        /// `sizes.fields` contains the id of each field, in order of their appearance
+        /// `sizes.offsets` contains for each field the bytes size of each preceding fields
         const sizes = blk: {
             const Data = struct {
                 size: usize,
-                size_index: usize,
+                field_index: usize,
                 alignment: usize,
             };
             var data: [fields.len]Data = undefined;
             var big_align: usize = 1;
+            var bytes_per_capacity: usize = 0;
             for (fields, 0..) |field_info, i| {
                 data[i] = .{
                     .size = @sizeOf(field_info.type),
-                    .size_index = i,
+                    .field_index = i,
                     .alignment = field_info.alignment orelse @alignOf(field_info.type),
                 };
                 big_align = @max(big_align, data[i].alignment);
+                bytes_per_capacity += data[i].size;
             }
             const Sort = struct {
                 fn lessThan(context: void, lhs: Data, rhs: Data) bool {
@@ -211,18 +216,24 @@ pub fn MultiArrayList(comptime T: type) type {
                     return lhs.alignment > rhs.alignment;
                 }
             };
-            @setEvalBranchQuota(3 * fields.len * std.math.log2(fields.len));
+            @setEvalBranchQuota(3 * fields.len * fields.len);
             mem.sort(Data, &data, {}, Sort.lessThan);
-            var sizes_bytes: [fields.len]usize = undefined;
             var field_indexes: [fields.len]usize = undefined;
+            var field_offsets: [fields.len]usize = @splat(0);
+
             for (data, 0..) |elem, i| {
-                sizes_bytes[i] = elem.size;
-                field_indexes[i] = elem.size_index;
+                field_indexes[i] = elem.field_index;
+
+                for (data[i + 1 ..]) |other_field| {
+                    field_offsets[other_field.field_index] += elem.size;
+                }
             }
+
             break :blk .{
-                .bytes = sizes_bytes,
-                .fields = field_indexes,
                 .big_align = mem.Alignment.fromByteUnits(big_align),
+                .bytes_per_capacity = bytes_per_capacity,
+                .fields = field_indexes,
+                .offsets = field_offsets,
             };
         };
 
@@ -248,19 +259,22 @@ pub fn MultiArrayList(comptime T: type) type {
                 .len = self.len,
                 .capacity = self.capacity,
             };
-            var ptr: [*]u8 = self.bytes;
-            for (sizes.bytes, sizes.fields) |field_size, i| {
-                result.ptrs[i] = ptr;
-                ptr += field_size * self.capacity;
+            inline for (result.ptrs[0..], sizes.offsets) |*p, offset| {
+                p.* = self.bytes[offset * self.capacity ..];
             }
             return result;
         }
 
         /// Get the slice of values for a specified field.
-        /// If you need multiple fields, consider calling slice()
-        /// instead.
         pub fn items(self: Self, comptime field: Field) []FieldType(field) {
-            return self.slice().items(field);
+            if (@sizeOf(FieldType(field)) == 0) {
+                return @as([*]FieldType(field), undefined)[0..self.len];
+            }
+
+            const offset: usize = comptime sizes.offsets[@intFromEnum(field)];
+            const byte_ptr: [*]u8 = self.bytes[offset * self.capacity ..];
+            const casted_ptr: [*]FieldType(field) = @ptrCast(@alignCast(byte_ptr));
+            return casted_ptr[0..self.len];
         }
 
         /// Overwrite one array element with new data.
@@ -662,9 +676,7 @@ pub fn MultiArrayList(comptime T: type) type {
         }
 
         pub fn capacityInBytes(capacity: usize) usize {
-            comptime var elem_bytes: usize = 0;
-            inline for (sizes.bytes) |size| elem_bytes += size;
-            return elem_bytes * capacity;
+            return sizes.bytes_per_capacity * capacity;
         }
 
         fn allocatedBytes(self: Self) []align(sizes.big_align.toByteUnits()) u8 {
@@ -718,6 +730,15 @@ test "basic usage" {
 
     var list: MultiArrayList(Foo) = .empty;
     defer list.deinit(ally);
+
+    comptime {
+        std.debug.assert(std.mem.eql(
+            usize,
+            &.{ @sizeOf([]const u8), 0, @sizeOf([]const u8) + @sizeOf(u32) },
+            &MultiArrayList(Foo).sizes.offsets,
+        ));
+        std.debug.assert(@sizeOf(u32) + @sizeOf([]const u8) + @sizeOf(u8) == MultiArrayList(Foo).sizes.bytes_per_capacity);
+    }
 
     try testing.expectEqual(@as(usize, 0), list.items(.a).len);
 
